@@ -81,13 +81,17 @@ def discover_models():
             'accuracy': 32.0
         }
     
-    # TabTransformer V1
-    if (MODELS_DIR / "tab_transformer_best.pth").exists():
-        models["TabTransformer V1"] = {
-            'path': MODELS_DIR / "tab_transformer_best.pth",
-            'type': 'pytorch',
-            'accuracy': 35.0
-        }
+    # TabTransformer V1 (only if PyTorch available)
+    try:
+        import torch
+        if (MODELS_DIR / "tab_transformer_best.pth").exists():
+            models["TabTransformer V1"] = {
+                'path': MODELS_DIR / "tab_transformer_best.pth",
+                'type': 'pytorch',
+                'accuracy': 35.0
+            }
+    except ImportError:
+        pass  # PyTorch not available, skip TabTransformer
     
     # Stacking Ensemble
     try:
