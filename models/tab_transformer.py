@@ -392,7 +392,8 @@ class AccidentTabTransformer:
             # Save best model
             if test_acc > best_test_acc:
                 best_test_acc = test_acc
-                self.save_model('models/tab_transformer_best.pth')
+                # Save best model with accuracy
+                self.save_model('models/tab_transformer_best.pth', test_accuracy=best_test_acc)
             
             # Print progress
             if (epoch + 1) % 5 == 0:
@@ -405,7 +406,7 @@ class AccidentTabTransformer:
         # Final evaluation
         self.evaluate(test_loader)
         
-        return train_losses, test_accuracies
+        return train_losses, test_accuracies, best_test_acc
     
     def evaluate(self, test_loader):
         """Evaluate model on test set"""
@@ -475,15 +476,21 @@ class AccidentTabTransformer:
         
         return predicted_label, probs_dict, attention_weights
     
-    def save_model(self, path: str):
+    def save_model(self, path: str, test_accuracy: float = None):
         """Save model and preprocessors"""
+        # Ensure directory exists
+        from pathlib import Path
+        save_path = Path(path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        
         torch.save({
             'model_state_dict': self.model.state_dict(),
             'categorical_encoders': self.categorical_encoders,
             'numerical_scaler': self.numerical_scaler,
             'target_encoder': self.target_encoder,
             'categorical_features': self.categorical_features,
-            'numerical_features': self.numerical_features
+            'numerical_features': self.numerical_features,
+            'test_accuracy': test_accuracy
         }, path)
         print(f"✓ Model saved to {path}")
     
@@ -516,15 +523,15 @@ def main():
     X_cat, X_num, y, categorical_dims = tab_transformer.load_and_prepare_data()
     
     # Train model
-    train_losses, test_accuracies = tab_transformer.train(
+    train_losses, test_accuracies, best_accuracy = tab_transformer.train(
         X_cat, X_num, y, categorical_dims,
         epochs=50,
         batch_size=128,
         learning_rate=0.001
     )
     
-    # Save final model
-    tab_transformer.save_model('models/tab_transformer_final.pth')
+    # Save final model with accuracy
+    tab_transformer.save_model('models/tab_transformer_final.pth', test_accuracy=best_accuracy)
     
     # Example prediction
     categorical_data = {

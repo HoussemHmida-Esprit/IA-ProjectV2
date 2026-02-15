@@ -1,41 +1,111 @@
-# Python-generated files
+# Python
 __pycache__/
 *.py[oc]
+*.pyo
+*.pyd
+.Python
 build/
 dist/
 wheels/
-*.egg-info
+*.egg-info/
+*.egg
 
 # Virtual environments
-.venv
+.venv/
 .venv_old/
+venv/
+ENV/
+env/
 
-# IDE settings
+# IDE
 .claude/
 .kiro/
 .vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
 
 # Streamlit
 .streamlit/secrets.toml
 
-# Test cache
-.pytest_cache/
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
 
-# Jupyter
-.ipynb_checkpoints/
+# Temporary files
+*.log
+*.tmp
+*.temp
+TODAY_TIMELINE.txt
+SALES_PROMPT_WITH_DATA.txt
 
-# Generated files
+# Generated visualizations (can be regenerated)
 correlation_analysis.png
+models/model_comparison.png
+models/multitarget_comparison.png
 
-# Data files - too large for GitHub
-# Keep cleaned data for deployment
-data/caracteristiques*.csv
-data/usagers*.csv
-data/caract-*.csv
-# data/cleaned_accidents.csv  # Needed for deployment
-# data/model_ready.csv  # Needed for deployment
+# Large raw data files (too big for GitHub)
+data/caracteristiques-2018.csv
+data/caracteristiques-2019.csv
+data/caracteristiques-2020.csv
+data/caracteristiques-2021.csv
+data/caracteristiques-2022.csv
+data/caract-2023.csv
+data/caract-2024.csv
+data/caracteristiques2005-2017.csv
+data/usagers-2018.csv
+data/usagers-2019.csv
+data/usagers-2020.csv
+data/usagers-2021.csv
+data/usagers-2022.csv
+data/usagers-2023.csv
+data/usagers-2024.csv
+data/usagers2005-2017.csv
 
-# Model files - can be regenerated but include for deployment
-# models/*.pkl
+# Large model files (can be regenerated or stored elsewhere)
+# Keep only the essential optimized models
+models/*.pkl
+!models/collision_labels.pkl
+models/*.pth
+models/models/
+models/random_forest_optimized_*.pkl
+models/xgboost_optimized_*.pkl
+rf_optimized.pkl
+xgb_optimized.pkl
 
+# Batch files (Windows-specific)
+*.bat
 
+# Backup files
+*.bak
+pyproject.toml.bak
+
+# Optimization results (can be regenerated)
+models/optimization_results.csv
+models/optimization_results_detailed.txt
+
+# Old/redundant documentation (cleaned up)
+DEEP_LEARNING_INVENTORY.md
+FINAL_PROJECT_DOCUMENTATION.md
+IMPLEMENTATION_COMPLETE.md
+MODEL_COMPARISON_VISUAL.md
+OPTIMIZATION_SUMMARY.md
+READY_TO_OPTIMIZE.md
+RNN_LSTM_LOCATION.md
+TABTRANSFORMER_EXPLAINED.md
+models/ADVANCED_MODELS_README.md
+ONE_DAY_SPRINT.md
+ROADMAP_NEXT_STEPS.md
+SALES_PRESENTATION_DATA.md
+START_HERE.md

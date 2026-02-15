@@ -108,6 +108,13 @@ with st.spinner(f"Loading {selected_model} model..."):
     try:
         xai = load_xai(available_models[selected_model], DATA_PATH)
         st.success(f"✅ Loaded {selected_model} model")
+        
+        # Show model info
+        with st.expander("ℹ️ Model Information"):
+            st.write(f"**Features used by this model:** {len(xai.feature_names)}")
+            feature_list = ", ".join([f"`{f}`" for f in xai.feature_names])
+            st.markdown(f"Features: {feature_list}")
+            
     except Exception as e:
         st.error(f"Error loading model: {e}")
         st.stop()
@@ -117,6 +124,10 @@ with st.spinner("Computing SHAP values... This may take a minute."):
     try:
         xai = compute_shap_if_needed(xai, sample_size)
         st.success(f"✅ SHAP values computed for {sample_size} samples")
+        
+        # Get actual features from the model (needed for all tabs)
+        actual_features = xai.feature_names
+        
     except Exception as e:
         st.error(f"Error computing SHAP values: {e}")
         st.stop()
@@ -129,25 +140,55 @@ tab1, tab2, tab3 = st.tabs(["Global Importance", "Feature Dependence", "Feature 
 with tab1:
     st.header("Global Feature Importance")
     st.markdown("""
-    This plot shows which features are most important across all predictions.
-    Each point represents one sample, colored by feature value.
+    **How to read this chart:**
+    - Features are ranked from **most important** (top) to **least important** (bottom)
+    - Each **dot** represents one prediction from your data
+    - **Color coding:**
+      - 🔴 **Red/Pink dots** = High feature value (e.g., late hour, many people)
+      - 🔵 **Blue dots** = Low feature value (e.g., early hour, few people)
+    - **Horizontal position (x-axis):**
+      - **Right side (positive)** = Feature increases accident severity/collision risk
+      - **Left side (negative)** = Feature decreases accident severity/collision risk
+    - **Spread** = How much the feature's impact varies across different situations
+    
+    **Example:** If "Hour" has many red dots on the right, it means late hours increase accident risk.
     """)
     
     try:
         fig = xai.plot_global_summary()
         st.pyplot(fig)
         plt.close()
+        
+        # Add interpretation help
+        st.info("""
+        💡 **Quick Interpretation Tips:**
+        - Look at the **top 3 features** - these have the biggest impact on predictions
+        - Features with **wide spreads** have complex, non-linear effects
+        - Features with **narrow spreads** have consistent, predictable effects
+        """)
+        
     except Exception as e:
         st.error(f"Error creating summary plot: {e}")
 
 with tab2:
     st.header("Feature Dependence Analysis")
     st.markdown("""
-    Shows how a specific feature affects predictions and how it interacts with other features.
+    **How to read this chart:**
+    - **X-axis** = The actual value of the feature (e.g., hour 0-23, number of people)
+    - **Y-axis** = SHAP value (impact on prediction)
+      - **Positive (above 0)** = Increases accident severity/collision risk
+      - **Negative (below 0)** = Decreases accident severity/collision risk
+    - **Color** = Shows interaction with another feature
+    - **Pattern** = Shows the relationship:
+      - **Upward slope** = Higher values increase risk
+      - **Downward slope** = Higher values decrease risk
+      - **Curved/scattered** = Complex non-linear relationship
+    
+    **Example:** If Hour shows an upward curve from 18-23, it means evening hours increase risk.
     """)
     
     # Feature selection
-    feature_options = {
+    feature_display_names = {
         'hour': 'Hour of Day',
         'lum': 'Lighting Conditions',
         'atm': 'Weather Conditions',
@@ -155,7 +196,14 @@ with tab2:
         'int': 'Intersection Type',
         'day_of_week': 'Day of Week',
         'month': 'Month',
-        'num_users': 'Number of People'
+        'num_users': 'Number of People',
+        'num_light_injury': 'Number of Light Injuries'
+    }
+    
+    # Build feature options from actual features
+    feature_options = {
+        feat: feature_display_names.get(feat, feat.replace('_', ' ').title())
+        for feat in actual_features
     }
     
     col1, col2 = st.columns(2)
@@ -164,45 +212,84 @@ with tab2:
         selected_feature = st.selectbox(
             "Select Feature to Analyze",
             options=list(feature_options.keys()),
-            format_func=lambda x: feature_options[x]
+            format_func=lambda x: feature_options[x],
+            help="Choose which feature's effect you want to understand"
         )
     
     with col2:
         interaction_feature = st.selectbox(
             "Color by Feature (Interaction)",
             options=['auto'] + list(feature_options.keys()),
-            format_func=lambda x: 'Auto' if x == 'auto' else feature_options[x]
+            format_func=lambda x: 'Auto' if x == 'auto' else feature_options[x],
+            help="Color points by another feature to see interactions"
         )
     
-    if st.button("Generate Dependence Plot"):
+    if st.button("Generate Dependence Plot", type="primary"):
         with st.spinner("Creating dependence plot..."):
             try:
                 interaction = None if interaction_feature == 'auto' else interaction_feature
                 fig = xai.plot_dependence(selected_feature, interaction_feature=interaction)
                 st.pyplot(fig)
                 plt.close()
+                
+                # Add interpretation based on selected feature
+                st.success("✅ Plot generated!")
+                
+                with st.expander("💡 How to interpret this specific plot"):
+                    if selected_feature == 'hour':
+                        st.write("""
+                        **Hour of Day interpretation:**
+                        - Look for peaks during rush hours (7-9, 17-19)
+                        - Night hours (22-6) often show different patterns
+                        - Compare weekday vs weekend patterns if colored by day_of_week
+                        """)
+                    elif selected_feature == 'num_users':
+                        st.write("""
+                        **Number of People interpretation:**
+                        - More people usually means more severe accidents
+                        - Look for threshold effects (e.g., 3+ people)
+                        - Multi-vehicle accidents have different patterns
+                        """)
+                    elif selected_feature == 'lum':
+                        st.write("""
+                        **Lighting Conditions interpretation:**
+                        - 1 = Daylight, 2 = Twilight, 3 = Night (lit), 4 = Night (unlit), 5 = Unknown
+                        - Night conditions (3-4) typically increase risk
+                        - Interaction with hour shows day/night cycle effects
+                        """)
+                    else:
+                        st.write(f"""
+                        **{feature_options[selected_feature]} interpretation:**
+                        - Look for upward/downward trends
+                        - Check for threshold effects (sudden changes)
+                        - Color patterns show how other features modify the effect
+                        """)
+                
             except Exception as e:
                 st.error(f"Error creating dependence plot: {e}")
 
 with tab3:
     st.header("Feature Importance Rankings")
     st.markdown("""
-    Mean absolute SHAP values for each feature, showing overall importance.
+    **How to read this table:**
+    - Features are ranked from **most important** to **least important**
+    - **Mean Abs SHAP** = Average impact on predictions (higher = more important)
+    - This is a simplified view - see the Global Importance chart for full details
     """)
     
     try:
         importance_df = xai.get_feature_importance()
         
-        # Display as table
+        # Display as table with better formatting
         st.dataframe(
             importance_df[['Feature', 'Mean_Abs_SHAP']].style.format({
                 'Mean_Abs_SHAP': '{:.4f}'
-            }),
+            }).background_gradient(subset=['Mean_Abs_SHAP'], cmap='Blues'),
             hide_index=True,
             use_container_width=True
         )
         
-        # Bar chart
+        # Bar chart with better styling
         import plotly.express as px
         fig = px.bar(
             importance_df,
@@ -211,44 +298,147 @@ with tab3:
             orientation='h',
             title='Feature Importance (Mean Absolute SHAP)',
             color='Mean_Abs_SHAP',
-            color_continuous_scale='Blues'
+            color_continuous_scale='RdYlGn_r',
+            labels={'Mean_Abs_SHAP': 'Importance Score', 'Feature': ''}
         )
         fig.update_layout(
             yaxis={'categoryorder': 'total ascending'},
-            showlegend=False
+            showlegend=False,
+            height=400,
+            font=dict(size=14)
         )
         st.plotly_chart(fig, use_container_width=True)
+        
+        # Add interpretation
+        top_feature = importance_df.iloc[0]['Feature']
+        top_score = importance_df.iloc[0]['Mean_Abs_SHAP']
+        
+        st.info(f"""
+        💡 **Key Insight:** 
+        - **{top_feature}** is the most important feature (score: {top_score:.4f})
+        - The top 3 features account for most of the model's decision-making
+        - Focus on these features for interventions and policy decisions
+        """)
         
     except Exception as e:
         st.error(f"Error creating importance table: {e}")
 
 st.divider()
 
-# Information section
-st.header("About SHAP Analysis")
-st.markdown("""
-### How to Interpret SHAP Values
+# Information section with visual examples
+st.header("📚 Understanding SHAP Analysis")
 
-1. **Global Summary Plot**:
-   - Features are ranked by importance (top to bottom)
-   - Each dot is one prediction
-   - Red = high feature value, Blue = low feature value
-   - Position on x-axis shows impact on prediction
+col1, col2 = st.columns(2)
 
-2. **Dependence Plot**:
-   - Shows relationship between feature value and SHAP value
-   - Helps identify non-linear patterns
-   - Color shows interaction with another feature
+with col1:
+    st.subheader("🎯 What is SHAP?")
+    st.markdown("""
+    **SHAP (SHapley Additive exPlanations)** explains predictions by showing how much each feature contributes.
+    
+    Think of it like this:
+    - Your model predicts an accident will be severe
+    - SHAP shows: "Hour (+0.5), Location (+0.3), Lighting (+0.2)"
+    - This means the hour contributed most to the high severity prediction
+    """)
+    
+    st.subheader("📊 Reading the Charts")
+    st.markdown("""
+    **Global Summary (Tab 1):**
+    - Top features = Most important
+    - Red dots = High values
+    - Blue dots = Low values
+    - Right side = Increases risk
+    - Left side = Decreases risk
+    
+    **Dependence Plot (Tab 2):**
+    - Shows exact relationship
+    - X-axis = Feature value
+    - Y-axis = Impact on prediction
+    - Upward trend = Higher values → Higher risk
+    """)
 
-3. **Feature Importance Table**:
-   - Simple ranking of features by average impact
-   - Higher values = more important features
+with col2:
+    st.subheader("💡 Practical Examples")
+    st.markdown("""
+    **Example 1: Hour of Day**
+    - If you see red dots (late hours) on the right
+    - → Late hours increase accident severity
+    - → Policy: Increase patrols at night
+    
+    **Example 2: Number of People**
+    - If the line goes up as people increase
+    - → More people = More severe accidents
+    - → Policy: Focus on multi-vehicle accidents
+    
+    **Example 3: Lighting**
+    - If poor lighting (high values) pushes right
+    - → Dark conditions increase risk
+    - → Policy: Improve street lighting
+    """)
+    
+    st.subheader("🎓 Key Concepts")
+    st.markdown("""
+    - **Positive SHAP** = Feature increases prediction
+    - **Negative SHAP** = Feature decreases prediction
+    - **Large magnitude** = Feature has big impact
+    - **Small magnitude** = Feature has little impact
+    - **Spread** = Effect varies by situation
+    """)
 
-### Why This Matters
+st.divider()
 
-Understanding feature importance helps:
-- Build trust in model predictions
-- Identify which factors matter most for accidents
-- Guide policy decisions and interventions
-- Debug model behavior
-""")
+# Quick reference guide
+with st.expander("🔍 Quick Reference: Feature Value Meanings"):
+    st.markdown("""
+    ### Lighting Conditions (lum)
+    - 1 = Full daylight
+    - 2 = Twilight/Dawn
+    - 3 = Night with street lights
+    - 4 = Night without street lights
+    - 5 = Unknown
+    
+    ### Location Type (agg)
+    - 1 = Outside urban area
+    - 2 = In urban area
+    
+    ### Intersection Type (int)
+    - 1 = Outside intersection
+    - 2 = X intersection
+    - 3 = T intersection
+    - 4 = Y intersection
+    - 5 = Multiple intersections
+    - 6 = Roundabout
+    - 7 = Railroad crossing
+    - 8 = Other
+    - 9 = Unknown
+    
+    ### Hour
+    - 0-23 (24-hour format)
+    - Peak hours: 7-9 (morning), 17-19 (evening)
+    
+    ### Number of People (num_users)
+    - Total people involved in the accident
+    - Higher numbers typically mean more vehicles
+    """)
+
+with st.expander("❓ Common Questions"):
+    st.markdown("""
+    **Q: Why are some features more important than others?**
+    A: The model learned from data that some features (like hour, lighting) have stronger relationships with accident outcomes than others.
+    
+    **Q: Can I trust these explanations?**
+    A: SHAP is mathematically rigorous and widely used. However, it shows correlation, not causation.
+    
+    **Q: What should I do with this information?**
+    A: Use it to:
+    - Understand what drives accident severity
+    - Identify high-risk conditions
+    - Guide policy and intervention decisions
+    - Validate that the model makes sense
+    
+    **Q: Why do some plots look scattered?**
+    A: Scatter indicates complex interactions - the feature's effect depends on other factors.
+    
+    **Q: What's a "good" SHAP value?**
+    A: There's no universal threshold. Compare features relative to each other within your model.
+    """)

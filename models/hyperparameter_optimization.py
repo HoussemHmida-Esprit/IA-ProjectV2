@@ -24,6 +24,7 @@ warnings.filterwarnings('ignore')
 # Import custom models
 from tab_transformer import AccidentTabTransformer
 from lstm_forecasting import AccidentLSTM
+from model_persistence import save_model as save_model_persistent
 
 # Suppress Optuna logs
 optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -32,7 +33,7 @@ optuna.logging.set_verbosity(optuna.logging.WARNING)
 class ModelOptimizer:
     """Hyperparameter optimization for all models"""
     
-    def __init__(self, data_path='../data/model_ready.csv'):
+    def __init__(self, data_path='data/model_ready.csv'):
         self.data_path = Path(data_path)
         self.results = {}
         
@@ -48,6 +49,11 @@ class ModelOptimizer:
         # Prepare data
         self.X = df[self.all_features]
         self.y_collision = df['col']  # Collision type
+        
+        # Fix class labels for XGBoost (requires 0-based consecutive classes)
+        # Replace -1 with 0
+        self.y_collision = self.y_collision.replace(-1, 0)
+        
         self.y_severity = df['max_severity'] if 'max_severity' in df.columns else None
         
         # Split data
@@ -134,23 +140,37 @@ class ModelOptimizer:
         improvement = (optimized_acc - baseline_acc) / baseline_acc * 100
         print(f"\n✅ Improvement: {improvement:+.2f}%")
         
-        # Save optimized model
+        # Save optimized model with persistence system
+        metrics_dict = {
+            'baseline_accuracy': baseline_acc,
+            'optimized_accuracy': optimized_acc,
+            'baseline_f1': baseline_f1,
+            'optimized_f1': optimized_f1,
+            'improvement_pct': improvement,
+            'accuracy': optimized_acc,
+            'f1_score': optimized_f1
+        }
+        
+        save_model_persistent(
+            model=optimized_model,
+            model_name='random_forest_optimized',
+            params=best_params,
+            metrics=metrics_dict,
+            features=self.all_features,
+            model_type='sklearn'
+        )
+        
+        # Also save legacy format
         model_data = {
             'model': optimized_model,
             'features': self.all_features,
             'best_params': best_params,
-            'metrics': {
-                'baseline_accuracy': baseline_acc,
-                'optimized_accuracy': optimized_acc,
-                'baseline_f1': baseline_f1,
-                'optimized_f1': optimized_f1,
-                'improvement_pct': improvement
-            }
+            'metrics': metrics_dict
         }
         
         with open('rf_optimized.pkl', 'wb') as f:
             pickle.dump(model_data, f)
-        print("✓ Saved to: rf_optimized.pkl")
+        print("✓ Legacy format saved to: rf_optimized.pkl")
         
         self.results['Random Forest'] = model_data['metrics']
         return model_data
@@ -234,23 +254,37 @@ class ModelOptimizer:
         improvement = (optimized_acc - baseline_acc) / baseline_acc * 100
         print(f"\n✅ Improvement: {improvement:+.2f}%")
         
-        # Save optimized model
+        # Save optimized model with persistence system
+        metrics_dict = {
+            'baseline_accuracy': baseline_acc,
+            'optimized_accuracy': optimized_acc,
+            'baseline_f1': baseline_f1,
+            'optimized_f1': optimized_f1,
+            'improvement_pct': improvement,
+            'accuracy': optimized_acc,
+            'f1_score': optimized_f1
+        }
+        
+        save_model_persistent(
+            model=optimized_model,
+            model_name='xgboost_optimized',
+            params=best_params,
+            metrics=metrics_dict,
+            features=self.all_features,
+            model_type='sklearn'
+        )
+        
+        # Also save legacy format
         model_data = {
             'model': optimized_model,
             'features': self.all_features,
             'best_params': best_params,
-            'metrics': {
-                'baseline_accuracy': baseline_acc,
-                'optimized_accuracy': optimized_acc,
-                'baseline_f1': baseline_f1,
-                'optimized_f1': optimized_f1,
-                'improvement_pct': improvement
-            }
+            'metrics': metrics_dict
         }
         
         with open('xgb_optimized.pkl', 'wb') as f:
             pickle.dump(model_data, f)
-        print("✓ Saved to: xgb_optimized.pkl")
+        print("✓ Legacy format saved to: xgb_optimized.pkl")
         
         self.results['XGBoost'] = model_data['metrics']
         return model_data
@@ -290,6 +324,8 @@ class ModelOptimizer:
                 learning_rate=params['learning_rate']
             )
             
+            # Don't save during optimization trials
+            
             # Return best test accuracy
             return max(test_accuracies)
         except Exception as e:
@@ -315,6 +351,8 @@ class ModelOptimizer:
             learning_rate=0.001
         )
         baseline_acc = max(baseline_accs)
+        
+        # Don't save baseline model during optimization
         
         print(f"   Baseline Accuracy: {baseline_acc:.4f}")
         
@@ -348,7 +386,7 @@ class ModelOptimizer:
         improvement = (optimized_acc - baseline_acc) / baseline_acc * 100
         print(f"\n✅ Improvement: {improvement:+.2f}%")
         
-        # Save optimized model
+        # Save optimized model (use correct path)
         optimized_transformer.save_model('tab_transformer_optimized.pth')
         print("✓ Saved to: tab_transformer_optimized.pth")
         
@@ -415,7 +453,7 @@ def main():
     print("HYPERPARAMETER OPTIMIZATION - ALL MODELS")
     print("="*60)
     
-    optimizer = ModelOptimizer(data_path='../data/model_ready.csv')
+    optimizer = ModelOptimizer(data_path='data/model_ready.csv')
     
     # Optimize each model
     print("\nStarting optimization process...")

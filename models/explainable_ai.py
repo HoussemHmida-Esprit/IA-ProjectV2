@@ -18,7 +18,10 @@ FEATURE_NAMES = {
     'hour': 'Hour',
     'day_of_week': 'Day of Week',
     'month': 'Month',
-    'num_users': 'People Involved'
+    'num_users': 'People Involved',
+    'num_light_injury': 'Light Injuries',
+    'num_serious_injury': 'Serious Injuries',
+    'num_killed': 'Fatalities'
 }
 
 
@@ -62,9 +65,19 @@ class AccidentXAI:
         # Load data
         df = pd.read_csv(self.data_path)
         
-        # Define features
+        # Define features - use model's features if available, otherwise default
         if self.feature_names is None:
-            self.feature_names = ['lum', 'atm', 'agg', 'int', 'hour', 'day_of_week', 'month', 'num_users']
+            # Try common feature sets
+            possible_features = ['lum', 'atm', 'agg', 'int', 'hour', 'day_of_week', 'month', 'num_users', 'num_light_injury']
+            self.feature_names = [f for f in possible_features if f in df.columns]
+            
+            if not self.feature_names:
+                raise ValueError("Could not determine feature names from model or data")
+        
+        # Verify all features exist in data
+        missing_features = [f for f in self.feature_names if f not in df.columns]
+        if missing_features:
+            raise ValueError(f"Features not found in data: {missing_features}")
         
         # Prepare features
         self.X = df[self.feature_names].copy()
@@ -99,6 +112,9 @@ class AccidentXAI:
         else:
             X_sample = self.X
         
+        # Store sample for later use
+        self.X_sample = X_sample
+        
         # Handle MultiOutputClassifier
         model_to_explain = self.model
         if hasattr(self.model, 'estimators_'):
@@ -112,7 +128,28 @@ class AccidentXAI:
         # Compute SHAP values
         self.shap_values = self.explainer(X_sample)
         
+        # For multi-class models, SHAP returns values for each class
+        # We need to handle this properly
+        if isinstance(self.shap_values.values, list) or (len(self.shap_values.values.shape) == 3):
+            print(f"Multi-class output detected: {self.shap_values.values.shape}")
+            # For multi-class, use the mean absolute SHAP across all classes
+            # Or select the predicted class for each sample
+            if len(self.shap_values.values.shape) == 3:
+                # Shape is (samples, features, classes)
+                # Average across classes for visualization
+                print("Averaging SHAP values across classes for visualization")
+                mean_shap_values = np.mean(np.abs(self.shap_values.values), axis=2)
+                
+                # Create new Explanation object with averaged values
+                self.shap_values = shap.Explanation(
+                    values=mean_shap_values,
+                    base_values=np.mean(self.shap_values.base_values, axis=1) if len(self.shap_values.base_values.shape) > 1 else self.shap_values.base_values,
+                    data=self.shap_values.data,
+                    feature_names=self.feature_names
+                )
+        
         print(f"✓ SHAP values computed for {len(X_sample)} samples")
+        print(f"  SHAP values shape: {self.shap_values.values.shape}")
         
     def plot_global_summary(self, save_path: str = None):
         """
@@ -124,20 +161,27 @@ class AccidentXAI:
         if self.shap_values is None:
             raise ValueError("SHAP values not computed. Run compute_shap_values() first.")
         
-        plt.figure(figsize=(10, 6))
+        # Create larger, clearer figure
+        plt.figure(figsize=(12, 8))
         
         # Rename features for better readability
         feature_names_display = [FEATURE_NAMES.get(f, f) for f in self.feature_names]
         
-        # Create summary plot
+        # Create summary plot with better styling
         shap.summary_plot(
             self.shap_values,
             features=self.shap_values.data,
             feature_names=feature_names_display,
-            show=False
+            show=False,
+            plot_size=(12, 8),
+            max_display=len(self.feature_names)  # Show all features
         )
         
-        plt.title("Global Feature Importance (SHAP)", fontsize=14, fontweight='bold')
+        plt.title("Global Feature Importance (SHAP)", fontsize=16, fontweight='bold', pad=20)
+        plt.xlabel("SHAP Value (Impact on Model Output)", fontsize=13, fontweight='bold')
+        plt.ylabel("Features", fontsize=13, fontweight='bold')
+        plt.xticks(fontsize=11)
+        plt.yticks(fontsize=11)
         plt.tight_layout()
         
         if save_path:
@@ -163,25 +207,46 @@ class AccidentXAI:
         
         feature_idx = self.feature_names.index(feature)
         
-        plt.figure(figsize=(10, 6))
+        # Create larger, clearer figure
+        plt.figure(figsize=(12, 7))
         
         # Get display names
         feature_display = FEATURE_NAMES.get(feature, feature)
         interaction_display = FEATURE_NAMES.get(interaction_feature, interaction_feature) if interaction_feature else None
         
-        # Create dependence plot
+        # Get SHAP values - ensure 2D
+        shap_vals = self.shap_values.values
+        if len(shap_vals.shape) == 3:
+            # Multi-class: average across classes
+            shap_vals = np.mean(np.abs(shap_vals), axis=2)
+        
+        # Get feature data
+        feature_data = self.shap_values.data
+        
+        # Create dependence plot with better styling
         shap.dependence_plot(
             feature_idx,
-            self.shap_values.values,
-            self.shap_values.data,
+            shap_vals,
+            feature_data,
             feature_names=self.feature_names,
             interaction_index=interaction_feature if interaction_feature else "auto",
-            show=False
+            show=False,
+            dot_size=40,
+            alpha=0.6
         )
         
-        plt.title(f"SHAP Dependence: {feature_display}", fontsize=14, fontweight='bold')
-        plt.xlabel(feature_display, fontsize=12)
-        plt.ylabel(f"SHAP value for {feature_display}", fontsize=12)
+        plt.title(f"SHAP Dependence: {feature_display}", fontsize=16, fontweight='bold', pad=20)
+        plt.xlabel(f"{feature_display} Value", fontsize=13, fontweight='bold')
+        plt.ylabel(f"SHAP Value for {feature_display}", fontsize=13, fontweight='bold')
+        plt.xticks(fontsize=11)
+        plt.yticks(fontsize=11)
+        
+        # Add grid for easier reading
+        plt.grid(True, alpha=0.3, linestyle='--')
+        
+        # Add horizontal line at y=0
+        plt.axhline(y=0, color='black', linestyle='-', linewidth=0.8, alpha=0.5)
+        
         plt.tight_layout()
         
         if save_path:
@@ -232,13 +297,32 @@ class AccidentXAI:
             raise ValueError("SHAP values not computed. Run compute_shap_values() first.")
         
         # Calculate mean absolute SHAP values
-        mean_abs_shap = np.abs(self.shap_values.values).mean(axis=0)
+        shap_vals = self.shap_values.values
         
-        # Create DataFrame
+        # Handle different shapes
+        if len(shap_vals.shape) == 3:
+            # Multi-class: (samples, features, classes)
+            # Average across samples and classes
+            mean_abs_shap = np.abs(shap_vals).mean(axis=(0, 2))
+        elif len(shap_vals.shape) == 2:
+            # Binary or averaged: (samples, features)
+            mean_abs_shap = np.abs(shap_vals).mean(axis=0)
+        else:
+            # 1D - single sample
+            mean_abs_shap = np.abs(shap_vals)
+        
+        # Ensure 1D array
+        mean_abs_shap = np.atleast_1d(mean_abs_shap).flatten()
+        
+        # Ensure we have the right number of values
+        if len(mean_abs_shap) != len(self.feature_names):
+            raise ValueError(f"Shape mismatch: {len(mean_abs_shap)} SHAP values but {len(self.feature_names)} features. SHAP shape: {shap_vals.shape}")
+        
+        # Create DataFrame with explicit 1D arrays
         importance_df = pd.DataFrame({
-            'Feature': [FEATURE_NAMES.get(f, f) for f in self.feature_names],
-            'Feature_Code': self.feature_names,
-            'Mean_Abs_SHAP': mean_abs_shap
+            'Feature': [str(FEATURE_NAMES.get(f, f)) for f in self.feature_names],
+            'Feature_Code': [str(f) for f in self.feature_names],
+            'Mean_Abs_SHAP': mean_abs_shap.tolist()  # Convert to list to ensure 1D
         })
         
         # Sort by importance

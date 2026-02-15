@@ -20,6 +20,9 @@ from sklearn.metrics import (
 import warnings
 warnings.filterwarnings('ignore')
 
+# Import persistence manager
+from model_persistence import save_model
+
 
 # Label mappings for collision types
 COLLISION_TYPE_LABELS = {
@@ -33,7 +36,7 @@ COLLISION_TYPE_LABELS = {
 }
 
 
-def load_data(data_path: str = 'data/model_ready.csv') -> pd.DataFrame:
+def load_data(data_path: str = '../data/model_ready.csv') -> pd.DataFrame:
     """Load model-ready data from CSV file.
     
     Args:
@@ -62,12 +65,11 @@ def prepare_features(df: pd.DataFrame) -> tuple:
     
     Features selected based on Requirements 4.2:
     - lum: Lighting conditions (1-5)
-    - atm: Weather conditions (1-9)
     - agg: Urban/rural (1-2)
     - int: Intersection type (1-9)
     - hour: Hour of day (0-23)
     - day_of_week: Day of week (0-6)
-    - month: Month (1-12)
+    - num_users: Number of people involved
     
     Target variable (Requirements 4.1):
     - col: Collision type (1-7)
@@ -78,8 +80,8 @@ def prepare_features(df: pd.DataFrame) -> tuple:
     Returns:
         Tuple of (X, y) where X is features DataFrame and y is target Series
     """
-    # Define feature columns
-    feature_cols = ['lum', 'atm', 'agg', 'int', 'hour', 'day_of_week', 'month']
+    # Define feature columns (based on actual data)
+    feature_cols = ['lum', 'agg', 'int', 'hour', 'day_of_week', 'num_users']
     target_col = 'col'
     
     # Verify all columns exist
@@ -234,9 +236,9 @@ def evaluate_model(model: RandomForestClassifier, X_test: pd.DataFrame,
     return metrics
 
 
-def save_model(model: RandomForestClassifier, model_path: str = 'models/collision_model.pkl',
+def save_model_legacy(model: RandomForestClassifier, model_path: str = 'models/collision_model.pkl',
                labels_path: str = 'models/collision_labels.pkl') -> None:
-    """Save trained model and label mappings to files.
+    """Save trained model and label mappings to files (legacy method).
     
     Requirements 4.7: Save model to models/collision_model.pkl
     
@@ -332,7 +334,39 @@ def main():
     
     # Step 6: Save model (Requirements 4.7)
     print("\n[Step 6] Saving model...")
-    save_model(model)
+    
+    # Save with new persistence system
+    params = {
+        'n_estimators': 100,
+        'class_weight': 'balanced',
+        'max_depth': 15,
+        'min_samples_split': 10,
+        'min_samples_leaf': 5,
+        'random_state': 42
+    }
+    
+    feature_cols = ['lum', 'agg', 'int', 'hour', 'day_of_week', 'num_users']
+    
+    # Convert numpy arrays to lists for JSON serialization
+    metrics_for_save = {
+        'accuracy': metrics['accuracy'],
+        'precision': metrics['precision'],
+        'recall': metrics['recall'],
+        'f1_score': metrics['f1_score']
+    }
+    
+    save_model(
+        model=model,
+        model_name='random_forest_baseline',
+        params=params,
+        metrics=metrics_for_save,
+        features=feature_cols,
+        model_type='sklearn',
+        additional_info={'label_mapping': COLLISION_TYPE_LABELS}
+    )
+    
+    # Also save legacy format for backward compatibility
+    save_model_legacy(model)
     
     print("\n" + "=" * 60)
     print("MODEL TRAINING COMPLETE!")

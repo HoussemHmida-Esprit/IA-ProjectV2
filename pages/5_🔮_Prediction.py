@@ -37,12 +37,20 @@ INTERSECTION_OPTIONS = {
 }
 
 COLLISION_LABELS = {
-    0: "Frontale", 1: "Par arrière", 2: "Par le côté",
-    3: "En chaîne", 4: "Multiples", 5: "Autre", 6: "Sans collision"
+    0: "Frontal Collision",
+    1: "Rear-End Collision", 
+    2: "Side Collision",
+    3: "Chain Collision",
+    4: "Multiple Collisions",
+    5: "Other Collision",
+    6: "No Collision"
 }
 
 SEVERITY_LABELS = {
-    0: "Indemne", 1: "Tué", 2: "Hospitalisé", 3: "Blessé léger"
+    0: "Unharmed",
+    1: "Killed",
+    2: "Hospitalized",
+    3: "Light Injury"
 }
 
 DAY_OPTIONS = {0: "Monday", 1: "Tuesday", 2: "Wednesday", 3: "Thursday",
@@ -130,19 +138,21 @@ def load_tabtransformer_model(model_path):
             num_classes=num_classes
         )
         
+        # Get test accuracy if available
+        test_accuracy = checkpoint.get('test_accuracy', None)
+        
         return {
             'transformer': tab_transformer,
             'type': 'tabtransformer',
             'categorical_features': categorical_features,
-            'numerical_features': checkpoint['numerical_features']
+            'numerical_features': checkpoint['numerical_features'],
+            'test_accuracy': test_accuracy
         }
     except ImportError:
         st.error("PyTorch not installed. TabTransformer requires PyTorch.")
         return None
     except Exception as e:
         st.error(f"Error loading TabTransformer: {e}")
-        return None
-        st.error(f"Error loading model: {e}")
         return None
 
 
@@ -275,39 +285,64 @@ if model_data is None:
 # Show model info
 st.info(f"**Model:** {model_name} ({model_type.upper()})")
 
-# Show metrics
+# Show accuracy metrics
 if model_type == 'sklearn' and 'metrics' in model_data:
     metrics = model_data['metrics']
     
-    # Check if this is an optimized model
+    # Determine the highest accuracy to display
+    highest_accuracy = 0
+    accuracy_label = "Accuracy"
+    
+    # Check different metric formats and find the highest
     if 'optimized_accuracy' in metrics:
+        highest_accuracy = metrics.get('optimized_accuracy', 0)
+        accuracy_label = "Optimized Accuracy"
         st.success("🎯 **Optimized Model** - Hyperparameters tuned with Optuna")
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Baseline Accuracy", f"{metrics.get('baseline_accuracy', 0):.1%}")
-        with col2:
-            st.metric("Optimized Accuracy", f"{metrics.get('optimized_accuracy', 0):.1%}")
-        with col3:
-            improvement = metrics.get('improvement_pct', 0)
-            st.metric("Improvement", f"{improvement:+.2f}%", delta=f"{improvement:+.2f}%")
-        with col4:
-            st.metric("F1-Score", f"{metrics.get('optimized_f1', 0):.3f}")
-    elif 'collision_accuracy' in metrics:
-        # Old format (multi-target)
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Collision Accuracy", f"{metrics.get('collision_accuracy', 0):.1%}")
-        with col2:
-            st.metric("Severity Accuracy", f"{metrics.get('severity_accuracy', 0):.1%}")
-        with col3:
-            st.metric("Overall F1", f"{metrics.get('avg_f1', 0):.3f}")
-    else:
-        # Simple accuracy display
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Accuracy", f"{metrics.get('baseline_accuracy', 0):.1%}")
-        with col2:
-            st.metric("F1-Score", f"{metrics.get('baseline_f1', 0):.3f}")
+    elif 'collision_accuracy' in metrics and 'severity_accuracy' in metrics:
+        # For multi-target, show the higher of the two
+        col_acc = metrics.get('collision_accuracy', 0)
+        sev_acc = metrics.get('severity_accuracy', 0)
+        if sev_acc > col_acc:
+            highest_accuracy = sev_acc
+            accuracy_label = "Severity Accuracy"
+        else:
+            highest_accuracy = col_acc
+            accuracy_label = "Collision Accuracy"
+    elif 'baseline_accuracy' in metrics:
+        highest_accuracy = metrics.get('baseline_accuracy', 0)
+        accuracy_label = "Accuracy"
+    
+    # Display only the highest accuracy in a prominent way
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        st.metric(
+            label=accuracy_label,
+            value=f"{highest_accuracy:.1%}",
+            delta=None,
+            help="Model's highest accuracy score"
+        )
+    with col2:
+        # Show F1-score if available
+        f1_score = metrics.get('optimized_f1', metrics.get('avg_f1', metrics.get('baseline_f1', 0)))
+        if f1_score > 0:
+            st.metric("F1-Score", f"{f1_score:.3f}")
+
+elif model_type == 'pytorch' and 'test_accuracy' in model_data and model_data['test_accuracy'] is not None:
+    # Display TabTransformer accuracy
+    test_accuracy = model_data['test_accuracy']
+    st.success("🧠 **Deep Learning Model** - Transformer-based architecture")
+    
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        st.metric(
+            label="Test Accuracy",
+            value=f"{test_accuracy:.2f}%",
+            delta=None,
+            help="TabTransformer's test set accuracy"
+        )
+    with col2:
+        st.metric("Architecture", "Transformer")
+
 
 st.divider()
 
@@ -384,6 +419,16 @@ if st.button("Predict", type="primary", use_container_width=True):
                 if col_proba:
                     confidence = col_proba.get(col_pred, 0) * 100
                     st.metric("Confidence", f"{confidence:.1f}%")
+                    
+                    # Add confidence interpretation
+                    if confidence < 25:
+                        st.warning("⚠️ Low confidence - Model is uncertain")
+                    elif confidence < 40:
+                        st.info("ℹ️ Moderate confidence - Use with caution")
+                    elif confidence < 60:
+                        st.success("✅ Good confidence - Reliable prediction")
+                    else:
+                        st.success("✅✅ High confidence - Very reliable")
             
             with result_col2:
                 if sev_pred is not None:
