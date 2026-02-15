@@ -74,16 +74,29 @@ def discover_models():
     if not MODELS_DIR.exists():
         return models
     
-    # Look for multitarget .pkl files (Random Forest, XGBoost)
+    # Priority 1: Look for optimized models (BEST)
+    if (MODELS_DIR / "xgboost_optimized_latest.pkl").exists():
+        models["XGBoost (Optimized - 45.14%)"] = {
+            'path': MODELS_DIR / "xgboost_optimized_latest.pkl",
+            'type': 'sklearn'
+        }
+    
+    if (MODELS_DIR / "random_forest_optimized_latest.pkl").exists():
+        models["Random Forest (Optimized - 33.11%)"] = {
+            'path': MODELS_DIR / "random_forest_optimized_latest.pkl",
+            'type': 'sklearn'
+        }
+    
+    # Priority 2: Look for multitarget models (fallback)
     for file in MODELS_DIR.glob("*_multitarget.pkl"):
         model_name = file.stem.replace('_multitarget', '')
         parts = model_name.split('_')
         if len(parts) >= 1:
             model_type = parts[0].upper()
             if model_type == "RF":
-                friendly_name = "Random Forest"
+                friendly_name = "Random Forest (Baseline)"
             elif model_type == "XGB":
-                friendly_name = "XGBoost"
+                friendly_name = "XGBoost (Baseline)"
             else:
                 friendly_name = model_type
         else:
