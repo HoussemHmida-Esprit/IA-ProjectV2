@@ -73,25 +73,14 @@ data/usagers-2023.csv
 data/usagers-2024.csv
 data/usagers2005-2017.csv
 
-# Large model files (can be regenerated or stored elsewhere)
-# Keep only the essential optimized models
-models/*.pkl
-!models/collision_labels.pkl
-models/*.pth
-models/models/
-models/random_forest_optimized_*.pkl
-models/xgboost_optimized_*.pkl
+# Large model files - Use Git LFS for optimized models
+# Baseline models
+models/collision_model.pkl
+models/rf_pca_multitarget.pkl
 rf_optimized.pkl
 xgb_optimized.pkl
 
-# Batch files (Windows-specific)
-*.bat
-
-# Backup files
-*.bak
-pyproject.toml.bak
-
-# Optimization results (can be regenerated)
+# Old optimization results
 models/optimization_results.csv
 models/optimization_results_detailed.txt
 
