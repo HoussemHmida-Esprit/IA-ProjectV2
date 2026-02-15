@@ -74,9 +74,9 @@ def discover_models():
         }
     
     # Random Forest V1 (Baseline)
-    if (MODELS_DIR / "rf_nopca_multitarget.pkl").exists():
+    if (MODELS_DIR / "rf_pca_multitarget.pkl").exists():
         models["Random Forest V1"] = {
-            'path': MODELS_DIR / "rf_nopca_multitarget.pkl",
+            'path': MODELS_DIR / "rf_pca_multitarget.pkl",
             'type': 'sklearn',
             'accuracy': 32.0
         }
