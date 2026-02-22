@@ -11,7 +11,7 @@ env/
 
 # Node
 node_modules/
-frontend/node_modules/
+frontend/
 
 # IDE
 .vscode/
@@ -30,9 +30,50 @@ frontend/node_modules/
 # Tests
 tests/
 *.ipynb
+preprocess.ipynb
+
+# Large CSV data files (not needed for inference)
+data/usagers2005-2017.csv
+data/caracteristiques2005-2017.csv
+data/cleaned_accidents.csv
+data/usagers-*.csv
+data/caracteristiques-*.csv
+data/caract-*.csv
+
+# Keep only model_ready.csv (needed for SHAP)
+# data/model_ready.csv will be included
+
+# Exclude Random Forest models (we're not using them)
+models/rf_*.pkl
+models/random_forest_*.pkl
+models/collision_model.pkl
+
+# Exclude duplicate/old models
+models/xgb_optimized.pkl
+models/xgboost_optimized_latest.pkl
+models/models/random_forest_*.pkl
+
+# Keep these essential models:
+# - xgb_nopca_multitarget.pkl (4 MB)
+# - tab_transformer_best.pth (0.5 MB)
+# - lstm_forecaster.pth (0.2 MB)
+# - stacking_ensemble.pkl (if exists)
 
 # Misc
 .DS_Store
 *.log
 .env
 .env.local
+
+# Claude/Kiro
+.claude/
+.kiro/
+
+# Deployment configs (not needed in image)
+render.yaml
+vercel.json
+railway.json
+railway.toml
+DEPLOYMENT*.md
+QUICK_START.md
+test_deployment.ps1
