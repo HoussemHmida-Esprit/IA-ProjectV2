@@ -561,14 +561,14 @@ class ProductionInferencePipeline:
         # Map predictions to class names
         class_names = {
             -1: "Unknown",
-            0: "Frontale",
-            1: "Par arrière",
-            2: "Par le côté",
-            3: "En chaîne",
-            4: "Multiples",
-            5: "Autre",
-            6: "Sans collision",
-            7: "Autre collision"
+            0: "Frontal",
+            1: "Rear-End",
+            2: "Side",
+            3: "Chain",
+            4: "Multiple",
+            5: "Other",
+            6: "None",
+            7: "Other Type"
         }
         
         # Format individual predictions
