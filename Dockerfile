@@ -22,12 +22,11 @@ COPY pages/ ./pages/
 COPY models/*.py ./models/
 COPY models/__init__.py ./models/
 
-# Copy only small essential model files
+# Copy only small essential model files that exist in Git
 COPY models/xgb_nopca_multitarget.pkl ./models/
 COPY models/tab_transformer_best.pth ./models/
 COPY models/lstm_forecaster.pth ./models/
 COPY models/collision_labels.pkl ./models/
-COPY models/ensemble_info.pkl ./models/
 
 # Copy data directory with only model_ready.csv
 RUN mkdir -p ./data
