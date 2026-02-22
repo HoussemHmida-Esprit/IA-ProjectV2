@@ -35,8 +35,11 @@ COPY models/collision_labels.pkl ./models/
 RUN mkdir -p ./data
 COPY data/model_ready.csv ./data/
 
+# Change working directory to backend
+WORKDIR /app/backend
+
 # Expose port
 EXPOSE 8000
 
-# Start command
-CMD cd backend && uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
+# Start command - Railway will set PORT env variable
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]
