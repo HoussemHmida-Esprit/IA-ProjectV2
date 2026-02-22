@@ -80,7 +80,7 @@ class ForecastResponse(BaseModel):
 # Startup event
 @app.on_event("startup")
 async def startup_event():
-    """Initialize models on startup"""
+    """Initialize models on startup - LAZY LOADING for memory optimization"""
     global pipeline, xai, forecaster
     
     if not MODELS_AVAILABLE:
@@ -88,31 +88,58 @@ async def startup_event():
         return
     
     try:
-        # Load production pipeline
+        # DON'T load models at startup to save memory
+        # They will be loaded on first request
+        print("✅ Backend started - models will load on first request (lazy loading)")
+        
+    except Exception as e:
+        print(f"❌ Startup error: {e}")
+
+def ensure_pipeline_loaded():
+    """Load pipeline only when needed (lazy loading)"""
+    global pipeline
+    if pipeline is None and MODELS_AVAILABLE:
         print("Loading production pipeline...")
-        print(f"Models directory: {models_dir}")
-        print(f"Data directory: {data_dir}")
-        
         pipeline = ProductionInferencePipeline(models_dir=str(models_dir))
-        if pipeline.load_all_models():
-            print("✅ Pipeline loaded successfully")
-        else:
-            print("⚠️ No models loaded in pipeline")
-            pipeline = None
         
-        # Load XAI
+        # Load only essential lightweight models to save memory
+        # Skip heavy models like TabTransformer and LSTM on free tier
+        try:
+            # Try to load XGBoost (most important)
+            xgb_path = models_dir / 'xgb_nopca_multitarget.pkl'
+            if xgb_path.exists():
+                import pickle
+                with open(xgb_path, 'rb') as f:
+                    model_data = pickle.load(f)
+                    pipeline.models['xgboost'] = model_data.get('model', model_data)
+                print("✅ XGBoost loaded")
+            
+            # Try to load Random Forest (lightweight)
+            rf_path = models_dir / 'rf_pca_multitarget.pkl'
+            if rf_path.exists():
+                import pickle
+                with open(rf_path, 'rb') as f:
+                    model_data = pickle.load(f)
+                    pipeline.models['random_forest'] = model_data.get('model', model_data)
+                print("✅ Random Forest loaded")
+            
+            print(f"✅ Pipeline loaded with {len(pipeline.models)} models")
+        except Exception as e:
+            print(f"⚠️ Error loading models: {e}")
+    return pipeline
+
+def ensure_xai_loaded():
+    """Load XAI only when needed (lazy loading)"""
+    global xai
+    if xai is None and MODELS_AVAILABLE:
         print("Loading XAI module...")
         try:
             xai_model_path = models_dir / 'xgb_nopca_multitarget.pkl'
             xai_data_path = data_dir / 'model_ready.csv'
             
-            print(f"XAI model path: {xai_model_path}")
-            print(f"XAI data path: {xai_data_path}")
-            
-            if not xai_model_path.exists():
-                raise FileNotFoundError(f"Model not found: {xai_model_path}")
-            if not xai_data_path.exists():
-                raise FileNotFoundError(f"Data not found: {xai_data_path}")
+            if not xai_model_path.exists() or not xai_data_path.exists():
+                print("⚠️ XAI files not found")
+                return None
             
             xai = AccidentXAI(
                 model_path=str(xai_model_path),
@@ -123,35 +150,30 @@ async def startup_event():
             print("✅ XAI loaded successfully")
         except Exception as e:
             print(f"⚠️ XAI loading failed: {e}")
-            xai = None
-        
-        # Load forecaster
-        print("Loading LSTM forecaster...")
+    return xai
+
+def ensure_forecaster_loaded():
+    """Load forecaster only when needed (lazy loading) - DISABLED on free tier"""
+    global forecaster
+    if forecaster is None and MODELS_AVAILABLE:
+        print("Loading forecaster...")
         try:
-            forecaster_data_path = data_dir / 'cleaned_accidents.csv'
-            forecaster_model_path = models_dir / 'lstm_forecaster.pth'
+            forecaster_path = models_dir / 'lstm_forecaster.pth'
+            data_path = data_dir / 'cleaned_accidents.csv'
             
-            print(f"Forecaster data path: {forecaster_data_path}")
-            print(f"Forecaster model path: {forecaster_model_path}")
-            
-            if not forecaster_data_path.exists():
-                raise FileNotFoundError(f"Data not found: {forecaster_data_path}")
-            if not forecaster_model_path.exists():
-                raise FileNotFoundError(f"Model not found: {forecaster_model_path}")
+            if not forecaster_path.exists() or not data_path.exists():
+                print("⚠️ Forecaster files not found")
+                return None
             
             forecaster = AccidentForecaster(
-                data_path=str(forecaster_data_path),
-                sequence_length=30
+                model_path=str(forecaster_path),
+                data_path=str(data_path)
             )
-            forecaster.prepare_time_series_data()
-            forecaster.load_model(str(forecaster_model_path))
+            forecaster.load_model()
             print("✅ Forecaster loaded successfully")
         except Exception as e:
             print(f"⚠️ Forecaster loading failed: {e}")
-            forecaster = None
-            
-    except Exception as e:
-        print(f"❌ Startup error: {e}")
+    return forecaster
 
 # Health check
 @app.get("/api/health")
@@ -176,6 +198,9 @@ async def predict(request: PredictionRequest):
     """
     Predict accident severity using specified model or ensemble
     """
+    # Lazy load pipeline on first request
+    ensure_pipeline_loaded()
+    
     if pipeline is None:
         raise HTTPException(status_code=503, detail="Models not loaded")
     
@@ -431,6 +456,9 @@ async def get_shap_values(request: PredictionRequest):
     """
     Get SHAP values for a prediction
     """
+    # Lazy load XAI on first request
+    ensure_xai_loaded()
+    
     if xai is None:
         raise HTTPException(status_code=503, detail="XAI not available")
     
@@ -517,6 +545,9 @@ async def get_feature_importance():
     """
     Get global feature importance from SHAP
     """
+    # Lazy load XAI on first request
+    ensure_xai_loaded()
+    
     if xai is None:
         raise HTTPException(status_code=503, detail="XAI not available")
     
@@ -538,8 +569,15 @@ async def forecast(request: ForecastRequest):
     """
     Forecast future accident counts
     """
+    # Note: Forecaster disabled on free tier to save memory
+    # Uncomment below to enable if you have enough RAM
+    # ensure_forecaster_loaded()
+    
     if forecaster is None:
-        raise HTTPException(status_code=503, detail="Forecaster not available")
+        raise HTTPException(
+            status_code=503, 
+            detail="Forecaster not available on free tier (requires more memory). Upgrade to enable forecasting."
+        )
     
     try:
         # Get last sequence
@@ -577,6 +615,9 @@ async def get_available_models():
     """
     Get list of available models with metadata
     """
+    # Lazy load pipeline on first request
+    ensure_pipeline_loaded()
+    
     if pipeline is None:
         return {"models": []}
     
