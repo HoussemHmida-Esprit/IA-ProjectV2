@@ -96,31 +96,77 @@ async def startup_event():
         print(f"❌ Startup error: {e}")
 
 def ensure_pipeline_loaded():
-    """Load pipeline only when needed (lazy loading) - MINIMAL VERSION for free tier"""
+    """Load pipeline only when needed (lazy loading) - Load essential models"""
     global pipeline
     if pipeline is None and MODELS_AVAILABLE:
-        print("Loading minimal pipeline for free tier...")
+        print("Loading production pipeline with essential models...")
         pipeline = ProductionInferencePipeline(models_dir=str(models_dir))
         
-        # DON'T call load_all_models() - it loads everything including heavy models
-        # Instead, manually load ONLY XGBoost (most accurate and lightweight)
+        # Load models manually to control memory usage
+        # Skip Random Forest to save memory
         try:
             import pickle
+            import torch
             
-            # Load only XGBoost
+            # 1. Load XGBoost (essential)
             xgb_path = models_dir / 'xgb_nopca_multitarget.pkl'
             if xgb_path.exists():
                 print(f"Loading XGBoost from {xgb_path}...")
                 with open(xgb_path, 'rb') as f:
                     model_data = pickle.load(f)
                     pipeline.models['xgboost'] = model_data.get('model', model_data)
-                print("✅ XGBoost loaded (single model mode for free tier)")
+                print("✅ XGBoost loaded")
             else:
                 print(f"⚠️ XGBoost not found at {xgb_path}")
             
-            # Skip Random Forest, TabTransformer, LSTM to save memory
+            # 2. Load TabTransformer (for deep learning predictions)
+            tt_path = models_dir / 'tab_transformer_best.pth'
+            if tt_path.exists():
+                try:
+                    print(f"Loading TabTransformer from {tt_path}...")
+                    checkpoint = torch.load(tt_path, map_location='cpu', weights_only=False)
+                    
+                    # Get model configuration
+                    categorical_encoders = checkpoint['categorical_encoders']
+                    categorical_dims = [len(enc.classes_) for enc in categorical_encoders.values()]
+                    num_classes = len(checkpoint['target_encoder'].classes_)
+                    
+                    # Initialize TabTransformer
+                    from tab_transformer import AccidentTabTransformer
+                    tab_transformer = AccidentTabTransformer(str(data_dir / 'model_ready.csv'))
+                    tab_transformer.load_model(
+                        str(tt_path),
+                        categorical_dims=categorical_dims,
+                        num_classes=num_classes
+                    )
+                    
+                    pipeline.models['tabtransformer'] = tab_transformer
+                    print("✅ TabTransformer loaded")
+                except Exception as e:
+                    print(f"⚠️ TabTransformer loading failed: {e}")
+            else:
+                print(f"⚠️ TabTransformer not found at {tt_path}")
+            
+            # 3. Store LSTM path for lazy loading (don't load yet)
+            lstm_path = models_dir / 'lstm_forecaster.pth'
+            if lstm_path.exists():
+                pipeline.models['lstm'] = lstm_path
+                print("✅ LSTM path stored (will load on demand)")
+            else:
+                print(f"⚠️ LSTM not found at {lstm_path}")
+            
+            # 4. Load Stacking Meta-Learner if available
+            meta_path = models_dir / 'stacking_ensemble.pkl'
+            if meta_path.exists():
+                with open(meta_path, 'rb') as f:
+                    ensemble_data = pickle.load(f)
+                    pipeline.meta_model = ensemble_data.get('meta_model')
+                print("✅ Stacking Meta-Learner loaded")
+            else:
+                print("⚠️ Stacking Meta-Learner not found (will use weighted average)")
+            
             print(f"✅ Pipeline ready with {len(pipeline.models)} model(s)")
-            print("💡 Tip: Upgrade to Starter Plus for all models")
+            print("📊 Models: XGBoost, TabTransformer, LSTM (on-demand), Stacking")
             
         except Exception as e:
             print(f"⚠️ Error loading models: {e}")
@@ -129,36 +175,34 @@ def ensure_pipeline_loaded():
     return pipeline
 
 def ensure_xai_loaded():
-    """Load XAI only when needed (lazy loading) - DISABLED on free tier by default"""
+    """Load XAI only when needed (lazy loading) - Optimized for memory"""
     global xai
-    
-    # XAI is memory-intensive, disabled on free tier
-    # Uncomment below to enable if you have enough RAM
-    return None
-    
-    # if xai is None and MODELS_AVAILABLE:
-    #     print("Loading XAI module...")
-    #     try:
-    #         xai_model_path = models_dir / 'xgb_nopca_multitarget.pkl'
-    #         xai_data_path = data_dir / 'model_ready.csv'
-    #         
-    #         if not xai_model_path.exists() or not xai_data_path.exists():
-    #             print("⚠️ XAI files not found")
-    #             return None
-    #         
-    #         xai = AccidentXAI(
-    #             model_path=str(xai_model_path),
-    #             data_path=str(xai_data_path)
-    #         )
-    #         xai.load_model_and_data()
-    #         xai.compute_shap_values(sample_size=500)
-    #         print("✅ XAI loaded successfully")
-    #     except Exception as e:
-    #         print(f"⚠️ XAI loading failed: {e}")
-    # return xai
+    if xai is None and MODELS_AVAILABLE:
+        print("Loading XAI module (optimized)...")
+        try:
+            xai_model_path = models_dir / 'xgb_nopca_multitarget.pkl'
+            xai_data_path = data_dir / 'model_ready.csv'
+            
+            if not xai_model_path.exists() or not xai_data_path.exists():
+                print("⚠️ XAI files not found")
+                return None
+            
+            xai = AccidentXAI(
+                model_path=str(xai_model_path),
+                data_path=str(xai_data_path)
+            )
+            xai.load_model_and_data()
+            # Use smaller sample size to save memory (200 instead of 500)
+            xai.compute_shap_values(sample_size=200)
+            print("✅ XAI loaded successfully (optimized)")
+        except Exception as e:
+            print(f"⚠️ XAI loading failed: {e}")
+            import traceback
+            traceback.print_exc()
+    return xai
 
 def ensure_forecaster_loaded():
-    """Load forecaster only when needed (lazy loading) - DISABLED on free tier"""
+    """Load forecaster only when needed (lazy loading)"""
     global forecaster
     if forecaster is None and MODELS_AVAILABLE:
         print("Loading forecaster...")
@@ -178,6 +222,8 @@ def ensure_forecaster_loaded():
             print("✅ Forecaster loaded successfully")
         except Exception as e:
             print(f"⚠️ Forecaster loading failed: {e}")
+            import traceback
+            traceback.print_exc()
     return forecaster
 
 # Health check
@@ -467,7 +513,7 @@ async def get_shap_values(request: PredictionRequest):
     if xai is None:
         raise HTTPException(
             status_code=503, 
-            detail="SHAP explainability not available on free tier (requires more memory). Upgrade to Starter Plus to enable."
+            detail="SHAP explainability failed to load. Check server logs."
         )
     
     try:
@@ -559,7 +605,7 @@ async def get_feature_importance():
     if xai is None:
         raise HTTPException(
             status_code=503, 
-            detail="SHAP explainability not available on free tier (requires more memory). Upgrade to Starter Plus to enable."
+            detail="SHAP explainability failed to load. Check server logs."
         )
     
     try:
@@ -580,14 +626,13 @@ async def forecast(request: ForecastRequest):
     """
     Forecast future accident counts
     """
-    # Note: Forecaster disabled on free tier to save memory
-    # Uncomment below to enable if you have enough RAM
-    # ensure_forecaster_loaded()
+    # Lazy load forecaster on first request
+    ensure_forecaster_loaded()
     
     if forecaster is None:
         raise HTTPException(
             status_code=503, 
-            detail="Forecaster not available on free tier (requires more memory). Upgrade to enable forecasting."
+            detail="Forecaster failed to load. Check server logs."
         )
     
     try:
