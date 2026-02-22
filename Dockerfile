@@ -10,28 +10,30 @@ COPY requirements.txt .
 # Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy only essential files
+# Copy backend code
 COPY backend/ ./backend/
+
+# Copy supporting Python modules
 COPY src/ ./src/
 COPY utils/ ./utils/
 COPY pages/ ./pages/
 
-# Copy only essential model files (not Random Forest)
+# Copy models directory structure
 COPY models/*.py ./models/
 COPY models/__init__.py ./models/
+
+# Copy only small essential model files
 COPY models/xgb_nopca_multitarget.pkl ./models/
 COPY models/tab_transformer_best.pth ./models/
 COPY models/lstm_forecaster.pth ./models/
-COPY models/stacking_ensemble.pkl ./models/ 2>/dev/null || true
-COPY models/ensemble_info.pkl ./models/ 2>/dev/null || true
-COPY models/collision_labels.pkl ./models/ 2>/dev/null || true
+COPY models/collision_labels.pkl ./models/
+COPY models/ensemble_info.pkl ./models/
 
-# Copy only model_ready.csv for SHAP (skip other large CSVs)
+# Copy data directory with only model_ready.csv
 RUN mkdir -p ./data
-COPY data/model_ready.csv ./data/ 2>/dev/null || true
-COPY data/.gitkeep ./data/ 2>/dev/null || true
+COPY data/model_ready.csv ./data/
 
-# Expose port (Railway will set PORT env variable)
+# Expose port
 EXPOSE 8000
 
 # Start command
