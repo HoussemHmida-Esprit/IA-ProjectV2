@@ -96,61 +96,66 @@ async def startup_event():
         print(f"❌ Startup error: {e}")
 
 def ensure_pipeline_loaded():
-    """Load pipeline only when needed (lazy loading)"""
+    """Load pipeline only when needed (lazy loading) - MINIMAL VERSION for free tier"""
     global pipeline
     if pipeline is None and MODELS_AVAILABLE:
-        print("Loading production pipeline...")
+        print("Loading minimal pipeline for free tier...")
         pipeline = ProductionInferencePipeline(models_dir=str(models_dir))
         
-        # Load only essential lightweight models to save memory
-        # Skip heavy models like TabTransformer and LSTM on free tier
+        # DON'T call load_all_models() - it loads everything including heavy models
+        # Instead, manually load ONLY XGBoost (most accurate and lightweight)
         try:
-            # Try to load XGBoost (most important)
+            import pickle
+            
+            # Load only XGBoost
             xgb_path = models_dir / 'xgb_nopca_multitarget.pkl'
             if xgb_path.exists():
-                import pickle
+                print(f"Loading XGBoost from {xgb_path}...")
                 with open(xgb_path, 'rb') as f:
                     model_data = pickle.load(f)
                     pipeline.models['xgboost'] = model_data.get('model', model_data)
-                print("✅ XGBoost loaded")
+                print("✅ XGBoost loaded (single model mode for free tier)")
+            else:
+                print(f"⚠️ XGBoost not found at {xgb_path}")
             
-            # Try to load Random Forest (lightweight)
-            rf_path = models_dir / 'rf_pca_multitarget.pkl'
-            if rf_path.exists():
-                import pickle
-                with open(rf_path, 'rb') as f:
-                    model_data = pickle.load(f)
-                    pipeline.models['random_forest'] = model_data.get('model', model_data)
-                print("✅ Random Forest loaded")
+            # Skip Random Forest, TabTransformer, LSTM to save memory
+            print(f"✅ Pipeline ready with {len(pipeline.models)} model(s)")
+            print("💡 Tip: Upgrade to Starter Plus for all models")
             
-            print(f"✅ Pipeline loaded with {len(pipeline.models)} models")
         except Exception as e:
             print(f"⚠️ Error loading models: {e}")
+            import traceback
+            traceback.print_exc()
     return pipeline
 
 def ensure_xai_loaded():
-    """Load XAI only when needed (lazy loading)"""
+    """Load XAI only when needed (lazy loading) - DISABLED on free tier by default"""
     global xai
-    if xai is None and MODELS_AVAILABLE:
-        print("Loading XAI module...")
-        try:
-            xai_model_path = models_dir / 'xgb_nopca_multitarget.pkl'
-            xai_data_path = data_dir / 'model_ready.csv'
-            
-            if not xai_model_path.exists() or not xai_data_path.exists():
-                print("⚠️ XAI files not found")
-                return None
-            
-            xai = AccidentXAI(
-                model_path=str(xai_model_path),
-                data_path=str(xai_data_path)
-            )
-            xai.load_model_and_data()
-            xai.compute_shap_values(sample_size=500)
-            print("✅ XAI loaded successfully")
-        except Exception as e:
-            print(f"⚠️ XAI loading failed: {e}")
-    return xai
+    
+    # XAI is memory-intensive, disabled on free tier
+    # Uncomment below to enable if you have enough RAM
+    return None
+    
+    # if xai is None and MODELS_AVAILABLE:
+    #     print("Loading XAI module...")
+    #     try:
+    #         xai_model_path = models_dir / 'xgb_nopca_multitarget.pkl'
+    #         xai_data_path = data_dir / 'model_ready.csv'
+    #         
+    #         if not xai_model_path.exists() or not xai_data_path.exists():
+    #             print("⚠️ XAI files not found")
+    #             return None
+    #         
+    #         xai = AccidentXAI(
+    #             model_path=str(xai_model_path),
+    #             data_path=str(xai_data_path)
+    #         )
+    #         xai.load_model_and_data()
+    #         xai.compute_shap_values(sample_size=500)
+    #         print("✅ XAI loaded successfully")
+    #     except Exception as e:
+    #         print(f"⚠️ XAI loading failed: {e}")
+    # return xai
 
 def ensure_forecaster_loaded():
     """Load forecaster only when needed (lazy loading) - DISABLED on free tier"""
@@ -460,7 +465,10 @@ async def get_shap_values(request: PredictionRequest):
     ensure_xai_loaded()
     
     if xai is None:
-        raise HTTPException(status_code=503, detail="XAI not available")
+        raise HTTPException(
+            status_code=503, 
+            detail="SHAP explainability not available on free tier (requires more memory). Upgrade to Starter Plus to enable."
+        )
     
     try:
         # Prepare input - ensure all features are present
@@ -549,7 +557,10 @@ async def get_feature_importance():
     ensure_xai_loaded()
     
     if xai is None:
-        raise HTTPException(status_code=503, detail="XAI not available")
+        raise HTTPException(
+            status_code=503, 
+            detail="SHAP explainability not available on free tier (requires more memory). Upgrade to Starter Plus to enable."
+        )
     
     try:
         importance_df = xai.get_feature_importance()
